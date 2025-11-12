@@ -27,26 +27,35 @@ import com.mapbox.mapboxsdk.plugins.annotation.SymbolOptions
 import upv_dap.sep_dic_25.itiid_76129.piu3.coronado_sanchez.ui.theme.AppTheme
 import com.google.android.gms.location.*
 
+/**
+ * Actividad principal donde se inicializa la aplicación de rastreo GPS
+ */
 class MainActivity : ComponentActivity() {
-    private lateinit var fusedLocationClient: FusedLocationProviderClient
-    private val locationViewModel = LocationViewModel()
+    // Se inicializa el cliente de ubicación fusionado para obtener coordenadas GPS
+    private lateinit var clienteUbicacionFusionado: FusedLocationProviderClient
 
-    private val permissionLauncher = registerForActivityResult(
+    // Se crea el ViewModel que manejará el estado de la ubicación
+    private val modeloVistaUbicacion = ModeloVistaUbicacion()
+
+    // Aquí se lleva a cabo el registro del lanzador de permisos
+    private val lanzadorPermisos = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val allGranted = permissions.values.all { it }
-        if (allGranted) {
-            startLocationUpdates()
+    ) { permisos ->
+        val todosOtorgados = permisos.values.all { it }
+        if (todosOtorgados) {
+            // Se inician las actualizaciones de ubicación cuando los permisos son otorgados
+            iniciarActualizacionesUbicacion()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Inicializar Mapbox (reemplaza con tu token)
-        Mapbox.getInstance(this, "TU_MAPBOX_TOKEN_AQUI")
+        // Se inicializa Mapbox con el token de acceso público
+        Mapbox.getInstance(this, "TOKEN") // Aún no se pone pipipi
 
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        // Se obtiene la instancia del cliente de ubicación
+        clienteUbicacionFusionado = LocationServices.getFusedLocationProviderClient(this)
 
         setContent {
             AppTheme {
@@ -54,22 +63,26 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    LocalizameApp(
-                        viewModel = locationViewModel,
-                        onRequestPermissions = { requestPermissions() },
-                        onStartTracking = { phoneNumber ->
-                            startLocationUpdates()
-                            locationViewModel.startTracking(phoneNumber, this)
+                    // Aquí se lleva a cabo la construcción de la interfaz principal
+                    AplicacionLocalizame(
+                        modeloVista = modeloVistaUbicacion,
+                        alSolicitarPermisos = { solicitarPermisos() },
+                        alIniciarRastreo = { numeroTelefono ->
+                            iniciarActualizacionesUbicacion()
+                            modeloVistaUbicacion.iniciarRastreo(numeroTelefono, this)
                         },
-                        onStopTracking = { locationViewModel.stopTracking() }
+                        alDetenerRastreo = { modeloVistaUbicacion.detenerRastreo() }
                     )
                 }
             }
         }
     }
 
-    private fun requestPermissions() {
-        permissionLauncher.launch(
+    /**
+     * Se solicitan los permisos necesarios para ubicación y SMS
+     */
+    private fun solicitarPermisos() {
+        lanzadorPermisos.launch(
             arrayOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -78,154 +91,179 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun startLocationUpdates() {
+    /**
+     * Aquí se lleva a cabo el inicio de las actualizaciones continuas de ubicación GPS
+     */
+    private fun iniciarActualizacionesUbicacion() {
+        // Se verifica que el permiso de ubicación esté otorgado
         if (ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            val locationRequest = LocationRequest.Builder(
+            // Se configura la solicitud de ubicación con alta precisión cada 10 segundos
+            val solicitudUbicacion = LocationRequest.Builder(
                 Priority.PRIORITY_HIGH_ACCURACY,
                 10000L
             ).build()
 
-            val locationCallback = object : LocationCallback() {
-                override fun onLocationResult(result: LocationResult) {
-                    result.lastLocation?.let { location ->
-                        locationViewModel.updateLocation(
-                            location.latitude,
-                            location.longitude
+            // Se define el callback que recibe las actualizaciones de ubicación
+            val llamadaRetornoUbicacion = object : LocationCallback() {
+                override fun onLocationResult(resultado: LocationResult) {
+                    resultado.lastLocation?.let { ubicacion ->
+                        // Se actualiza la ubicación en el ViewModel
+                        modeloVistaUbicacion.actualizarUbicacion(
+                            ubicacion.latitude,
+                            ubicacion.longitude
                         )
                     }
                 }
             }
 
-            fusedLocationClient.requestLocationUpdates(
-                locationRequest,
-                locationCallback,
+            // Se inician las actualizaciones de ubicación
+            clienteUbicacionFusionado.requestLocationUpdates(
+                solicitudUbicacion,
+                llamadaRetornoUbicacion,
                 mainLooper
             )
         }
     }
 }
 
+/**
+ * Composable principal que construye la interfaz de la aplicación
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LocalizameApp(
-    viewModel: LocationViewModel,
-    onRequestPermissions: () -> Unit,
-    onStartTracking: (String) -> Unit,
-    onStopTracking: () -> Unit
+fun AplicacionLocalizame(
+    modeloVista: ModeloVistaUbicacion,
+    alSolicitarPermisos: () -> Unit,
+    alIniciarRastreo: (String) -> Unit,
+    alDetenerRastreo: () -> Unit
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    var showSettings by remember { mutableStateOf(false) }
+    // Se observa el estado de la interfaz desde el ViewModel
+    val estadoInterfaz by modeloVista.estadoInterfaz.collectAsState()
+    var mostrarConfiguracion by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Z_U3_CORONADO_SANCHEZ_ANGEL_GABRIEL") },
                 actions = {
-                    IconButton(onClick = { showSettings = true }) {
+                    IconButton(onClick = { mostrarConfiguracion = true }) {
                         Icon(Icons.Default.Settings, "Configuración")
                     }
                 }
             )
         }
-    ) { padding ->
+    ) { relleno ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(relleno)
         ) {
+            // Aquí se muestra el mapa de Mapbox o un marcador de espera
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                if (uiState.currentLocation != null) {
-                    MapboxMapView(
-                        latitude = uiState.currentLocation!!.latitude,
-                        longitude = uiState.currentLocation!!.longitude,
-                        isTracking = uiState.isTracking
+                if (estadoInterfaz.ubicacionActual != null) {
+                    VistaMapaMapbox(
+                        latitud = estadoInterfaz.ubicacionActual!!.latitud,
+                        longitud = estadoInterfaz.ubicacionActual!!.longitud,
+                        estaRastreando = estadoInterfaz.estaRastreando
                     )
                 } else {
-                    EmptyMapPlaceholder()
+                    MarcadorMapaVacio()
                 }
             }
 
-            ControlPanel(
-                isTracking = uiState.isTracking,
-                lastUpdate = uiState.lastUpdate,
-                messagesSent = uiState.messagesSent,
-                onStartTracking = {
-                    if (uiState.phoneNumber.isNotEmpty()) {
-                        onRequestPermissions()
-                        onStartTracking(uiState.phoneNumber)
+            // Se muestra el panel de control en la parte inferior
+            PanelControl(
+                estaRastreando = estadoInterfaz.estaRastreando,
+                ultimaActualizacion = estadoInterfaz.ultimaActualizacion,
+                mensajesEnviados = estadoInterfaz.mensajesEnviados,
+                alIniciarRastreo = {
+                    if (estadoInterfaz.numeroTelefono.isNotEmpty()) {
+                        alSolicitarPermisos()
+                        alIniciarRastreo(estadoInterfaz.numeroTelefono)
                     }
                 },
-                onStopTracking = onStopTracking
+                alDetenerRastreo = alDetenerRastreo
             )
         }
 
-        if (showSettings) {
-            SettingsDialog(
-                phoneNumber = uiState.phoneNumber,
-                updateInterval = uiState.updateInterval,
-                onPhoneNumberChange = { viewModel.updatePhoneNumber(it) },
-                onIntervalChange = { viewModel.updateInterval(it) },
-                onDismiss = { showSettings = false }
+        // Aquí se muestra el diálogo de configuración cuando es solicitado
+        if (mostrarConfiguracion) {
+            DialogoConfiguracion(
+                numeroTelefono = estadoInterfaz.numeroTelefono,
+                intervaloActualizacion = estadoInterfaz.intervaloActualizacion,
+                alCambiarNumeroTelefono = { modeloVista.actualizarNumeroTelefono(it) },
+                alCambiarIntervalo = { modeloVista.actualizarIntervalo(it) },
+                alCerrar = { mostrarConfiguracion = false }
             )
         }
     }
 }
 
+/**
+ * Composable que renderiza el mapa de Mapbox con la ubicación actual
+ */
 @Composable
-fun MapboxMapView(
-    latitude: Double,
-    longitude: Double,
-    isTracking: Boolean
+fun VistaMapaMapbox(
+    latitud: Double,
+    longitud: Double,
+    estaRastreando: Boolean
 ) {
-    var mapView by remember { mutableStateOf<MapView?>(null) }
-    var mapboxMap by remember { mutableStateOf<MapboxMap?>(null) }
+    // Se mantiene la referencia del MapView y MapboxMap
+    var vistaMapa by remember { mutableStateOf<MapView?>(null) }
+    var mapaMapbox by remember { mutableStateOf<MapboxMap?>(null) }
 
-    LaunchedEffect(latitude, longitude) {
-        mapboxMap?.let { map ->
-            val position = CameraPosition.Builder()
-                .target(LatLng(latitude, longitude))
+    // Aquí se lleva a cabo la animación de la cámara cuando cambia la ubicación
+    LaunchedEffect(latitud, longitud) {
+        mapaMapbox?.let { mapa ->
+            val posicion = CameraPosition.Builder()
+                .target(LatLng(latitud, longitud))
                 .zoom(15.0)
                 .build()
-            map.animateCamera(
-                com.mapbox.mapboxsdk.camera.CameraUpdateFactory.newCameraPosition(position),
+            mapa.animateCamera(
+                com.mapbox.mapboxsdk.camera.CameraUpdateFactory.newCameraPosition(posicion),
                 1000
             )
         }
     }
 
+    // Se inicializa el MapView usando AndroidView
     AndroidView(
-        factory = { context ->
-            MapView(context).apply {
-                mapView = this
+        factory = { contexto ->
+            MapView(contexto).apply {
+                vistaMapa = this
                 onCreate(null)
-                getMapAsync { map ->
-                    mapboxMap = map
-                    map.setStyle(Style.MAPBOX_STREETS) { style ->
-                        map.cameraPosition = CameraPosition.Builder()
-                            .target(LatLng(latitude, longitude))
+                getMapAsync { mapa ->
+                    mapaMapbox = mapa
+                    // Se configura el estilo del mapa
+                    mapa.setStyle(Style.MAPBOX_STREETS) { estilo ->
+                        mapa.cameraPosition = CameraPosition.Builder()
+                            .target(LatLng(latitud, longitud))
                             .zoom(15.0)
                             .build()
                     }
                 }
             }
         },
-        update = { view ->
-            view.onResume()
+        update = { vista ->
+            vista.onResume()
         },
         modifier = Modifier.fillMaxSize()
     )
 }
 
+/**
+ * Se muestra un marcador cuando no hay ubicación disponible
+ */
 @Composable
-fun EmptyMapPlaceholder() {
+fun MarcadorMapaVacio() {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -253,13 +291,16 @@ fun EmptyMapPlaceholder() {
     }
 }
 
+/**
+ * Panel de control donde se muestra el estado del rastreo y se controla el inicio/detención
+ */
 @Composable
-fun ControlPanel(
-    isTracking: Boolean,
-    lastUpdate: String,
-    messagesSent: Int,
-    onStartTracking: () -> Unit,
-    onStopTracking: () -> Unit
+fun PanelControl(
+    estaRastreando: Boolean,
+    ultimaActualizacion: String,
+    mensajesEnviados: Int,
+    alIniciarRastreo: () -> Unit,
+    alDetenerRastreo: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -272,6 +313,7 @@ fun ControlPanel(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Aquí se muestra el estado actual del rastreo
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -282,20 +324,20 @@ fun ControlPanel(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        if (isTracking) Icons.Default.GpsFixed else Icons.Default.GpsOff,
+                        if (estaRastreando) Icons.Default.GpsFixed else Icons.Default.GpsOff,
                         contentDescription = null,
-                        tint = if (isTracking)
+                        tint = if (estaRastreando)
                             MaterialTheme.colorScheme.primary
                         else
                             MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        if (isTracking) "Rastreando" else "Inactivo",
+                        if (estaRastreando) "Rastreando" else "Inactivo",
                         style = MaterialTheme.typography.titleMedium
                     )
                 }
 
-                if (isTracking) {
+                if (estaRastreando) {
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         shape = MaterialTheme.shapes.small
@@ -312,79 +354,91 @@ fun ControlPanel(
 
             HorizontalDivider()
 
+            // Se muestran las estadísticas de mensajes enviados y última actualización
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                StatItem(
-                    icon = Icons.Default.Message,
-                    label = "Mensajes",
-                    value = messagesSent.toString()
+                ElementoEstadistica(
+                    icono = Icons.Default.Message,
+                    etiqueta = "Mensajes",
+                    valor = mensajesEnviados.toString()
                 )
-                StatItem(
-                    icon = Icons.Default.Schedule,
-                    label = "Última actualización",
-                    value = lastUpdate
+                ElementoEstadistica(
+                    icono = Icons.Default.Schedule,
+                    etiqueta = "Última actualización",
+                    valor = ultimaActualizacion
                 )
             }
 
+            // Botón para iniciar o detener el rastreo
             Button(
-                onClick = if (isTracking) onStopTracking else onStartTracking,
+                onClick = if (estaRastreando) alDetenerRastreo else alIniciarRastreo,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isTracking)
+                    containerColor = if (estaRastreando)
                         MaterialTheme.colorScheme.error
                     else
                         MaterialTheme.colorScheme.primary
                 )
             ) {
                 Icon(
-                    if (isTracking) Icons.Default.Stop else Icons.Default.PlayArrow,
+                    if (estaRastreando) Icons.Default.Stop else Icons.Default.PlayArrow,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(if (isTracking) "Detener Rastreo" else "Iniciar Rastreo")
+                Text(if (estaRastreando) "Detener Rastreo" else "Iniciar Rastreo")
             }
         }
     }
 }
 
+/**
+ * Elemento individual de estadística que muestra un icono, valor y etiqueta
+ */
 @Composable
-fun StatItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {
+fun ElementoEstadistica(
+    icono: androidx.compose.ui.graphics.vector.ImageVector,
+    etiqueta: String,
+    valor: String
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Icon(
-            icon,
+            icono,
             contentDescription = null,
             modifier = Modifier.size(24.dp),
             tint = MaterialTheme.colorScheme.primary
         )
         Text(
-            value,
+            valor,
             style = MaterialTheme.typography.titleMedium
         )
         Text(
-            label,
+            etiqueta,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
 
+/**
+ * Diálogo de configuración donde se ingresa el número de teléfono y el intervalo de actualización
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsDialog(
-    phoneNumber: String,
-    updateInterval: Int,
-    onPhoneNumberChange: (String) -> Unit,
-    onIntervalChange: (Int) -> Unit,
-    onDismiss: () -> Unit
+fun DialogoConfiguracion(
+    numeroTelefono: String,
+    intervaloActualizacion: Int,
+    alCambiarNumeroTelefono: (String) -> Unit,
+    alCambiarIntervalo: (Int) -> Unit,
+    alCerrar: () -> Unit
 ) {
     AlertDialog(
-        onDismissRequest = onDismiss
+        onDismissRequest = alCerrar
     ) {
         Card {
             Column(
@@ -398,33 +452,36 @@ fun SettingsDialog(
                     style = MaterialTheme.typography.headlineSmall
                 )
 
+                // Campo de texto para ingresar el número de teléfono destino
                 OutlinedTextField(
-                    value = phoneNumber,
-                    onValueChange = onPhoneNumberChange,
+                    value = numeroTelefono,
+                    onValueChange = alCambiarNumeroTelefono,
                     label = { Text("Número de teléfono") },
                     placeholder = { Text("+521234567890") },
                     leadingIcon = { Icon(Icons.Default.Phone, null) },
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                // Slider para ajustar el intervalo de envío de mensajes
                 Column {
                     Text(
-                        "Intervalo: $updateInterval segundos",
+                        "Intervalo: $intervaloActualizacion segundos",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Slider(
-                        value = updateInterval.toFloat(),
-                        onValueChange = { onIntervalChange(it.toInt()) },
+                        value = intervaloActualizacion.toFloat(),
+                        onValueChange = { alCambiarIntervalo(it.toInt()) },
                         valueRange = 10f..300f,
                         steps = 28
                     )
                 }
 
+                // Botón para guardar la configuración
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = onDismiss) {
+                    TextButton(onClick = alCerrar) {
                         Text("Guardar")
                     }
                 }

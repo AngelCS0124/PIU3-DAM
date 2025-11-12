@@ -13,90 +13,138 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-data class LocationData(
-    val latitude: Double,
-    val longitude: Double
+/**
+ * Clase de datos que almacena las coordenadas GPS
+ */
+data class DatosUbicacion(
+    val latitud: Double,
+    val longitud: Double
 )
 
-data class UiState(
-    val currentLocation: LocationData? = null,
-    val isTracking: Boolean = false,
-    val lastUpdate: String = "Sin actualizar",
-    val messagesSent: Int = 0,
-    val phoneNumber: String = "",
-    val updateInterval: Int = 30
+/**
+ * Estado de la interfaz que contiene toda la información del rastreo
+ */
+data class EstadoInterfaz(
+    val ubicacionActual: DatosUbicacion? = null,
+    val estaRastreando: Boolean = false,
+    val ultimaActualizacion: String = "Sin actualizar",
+    val mensajesEnviados: Int = 0,
+    val numeroTelefono: String = "",
+    val intervaloActualizacion: Int = 30
 )
 
-class LocationViewModel : ViewModel() {
-    private val _uiState = MutableStateFlow(UiState())
-    val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+/**
+ * ViewModel que maneja la lógica de negocio del rastreo GPS y envío de SMS
+ */
+class ModeloVistaUbicacion : ViewModel() {
+    // Se inicializa el estado mutable de la interfaz
+    private val _estadoInterfaz = MutableStateFlow(EstadoInterfaz())
 
-    private var trackingJob: Job? = null
-    private var context: Context? = null
-    private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+    // Se expone el estado como inmutable para observación
+    val estadoInterfaz: StateFlow<EstadoInterfaz> = _estadoInterfaz.asStateFlow()
 
-    fun updateLocation(latitude: Double, longitude: Double) {
-        _uiState.value = _uiState.value.copy(
-            currentLocation = LocationData(latitude, longitude),
-            lastUpdate = dateFormat.format(Date())
+    // Variable que mantiene el trabajo de rastreo activo
+    private var trabajoRastreo: Job? = null
+
+    // Se almacena el contexto para el envío de SMS
+    private var contexto: Context? = null
+
+    // Se inicializa el formato de fecha para las actualizaciones
+    private val formatoFecha = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+
+    /**
+     * Aquí se lleva a cabo la actualización de la ubicación GPS actual
+     */
+    fun actualizarUbicacion(latitud: Double, longitud: Double) {
+        _estadoInterfaz.value = _estadoInterfaz.value.copy(
+            ubicacionActual = DatosUbicacion(latitud, longitud),
+            ultimaActualizacion = formatoFecha.format(Date())
         )
     }
 
-    fun updatePhoneNumber(phoneNumber: String) {
-        _uiState.value = _uiState.value.copy(phoneNumber = phoneNumber)
+    /**
+     * Se actualiza el número de teléfono destino para el envío de SMS
+     */
+    fun actualizarNumeroTelefono(numeroTelefono: String) {
+        _estadoInterfaz.value = _estadoInterfaz.value.copy(numeroTelefono = numeroTelefono)
     }
 
-    fun updateInterval(interval: Int) {
-        _uiState.value = _uiState.value.copy(updateInterval = interval)
+    /**
+     * Se actualiza el intervalo de tiempo entre envíos de SMS
+     */
+    fun actualizarIntervalo(intervalo: Int) {
+        _estadoInterfaz.value = _estadoInterfaz.value.copy(intervaloActualizacion = intervalo)
     }
 
-    fun startTracking(phoneNumber: String, context: Context) {
-        this.context = context
-        _uiState.value = _uiState.value.copy(
-            isTracking = true,
-            phoneNumber = phoneNumber
+    /**
+     * Aquí se lleva a cabo el inicio del rastreo GPS y envío automático de SMS
+     */
+    fun iniciarRastreo(numeroTelefono: String, contexto: Context) {
+        this.contexto = contexto
+
+        // Se actualiza el estado para indicar que el rastreo está activo
+        _estadoInterfaz.value = _estadoInterfaz.value.copy(
+            estaRastreando = true,
+            numeroTelefono = numeroTelefono
         )
 
-        trackingJob = viewModelScope.launch {
-            while (_uiState.value.isTracking) {
-                _uiState.value.currentLocation?.let { location ->
-                    sendLocationSMS(phoneNumber, location)
+        // Se inicia una corrutina que enviará SMS periódicamente
+        trabajoRastreo = viewModelScope.launch {
+            while (_estadoInterfaz.value.estaRastreando) {
+                _estadoInterfaz.value.ubicacionActual?.let { ubicacion ->
+                    // Se envía la ubicación actual por SMS
+                    enviarUbicacionPorSMS(numeroTelefono, ubicacion)
                 }
-                delay(_uiState.value.updateInterval * 1000L)
+                // Se espera el intervalo configurado antes del siguiente envío
+                delay(_estadoInterfaz.value.intervaloActualizacion * 1000L)
             }
         }
     }
 
-    fun stopTracking() {
-        trackingJob?.cancel()
-        _uiState.value = _uiState.value.copy(isTracking = false)
+    /**
+     * Se detiene el rastreo GPS y el envío de mensajes
+     */
+    fun detenerRastreo() {
+        trabajoRastreo?.cancel()
+        _estadoInterfaz.value = _estadoInterfaz.value.copy(estaRastreando = false)
     }
 
-    private fun sendLocationSMS(phoneNumber: String, location: LocationData) {
+    /**
+     * Aquí se lleva a cabo el envío de la ubicación GPS mediante SMS
+     */
+    private fun enviarUbicacionPorSMS(numeroTelefono: String, ubicacion: DatosUbicacion) {
         try {
-            val smsManager = SmsManager.getDefault()
-            val message = "Ubicación GPS:\nLat: ${location.latitude}\nLng: ${location.longitude}\n" +
-                    "Ver en mapa: https://maps.google.com/?q=${location.latitude},${location.longitude}"
+            // Se obtiene el gestor de SMS del sistema
+            val gestorSms = SmsManager.getDefault()
 
-            smsManager.sendTextMessage(
-                phoneNumber,
+            // Se construye el mensaje con las coordenadas y enlace de Google Maps
+            val mensaje = "Ubicación GPS:\nLat: ${ubicacion.latitud}\nLng: ${ubicacion.longitud}\n" +
+                    "Ver en mapa: https://maps.google.com/?q=${ubicacion.latitud},${ubicacion.longitud}"
+
+            // Se envía el mensaje de texto
+            gestorSms.sendTextMessage(
+                numeroTelefono,
                 null,
-                message,
+                mensaje,
                 null,
                 null
             )
 
-            _uiState.value = _uiState.value.copy(
-                messagesSent = _uiState.value.messagesSent + 1,
-                lastUpdate = dateFormat.format(Date())
+            // Se actualiza el contador de mensajes enviados
+            _estadoInterfaz.value = _estadoInterfaz.value.copy(
+                mensajesEnviados = _estadoInterfaz.value.mensajesEnviados + 1,
+                ultimaActualizacion = formatoFecha.format(Date())
             )
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
+    /**
+     * Se limpia el ViewModel cuando ya no es necesario
+     */
     override fun onCleared() {
         super.onCleared()
-        stopTracking()
+        detenerRastreo()
     }
 }
