@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Z_U3_CORONADO_SANCHEZ_ANGEL_GABRIEL</string>
+    <string name="location_permission_denied">Se requieren permisos de ubicación</string>
+    <string name="sms_permission_denied">Se requiere permiso para enviar SMS</string>
+    <string name="location_disabled">La ubicación está desactivada</string>
+    <string name="tracking_started">Rastreo iniciado</string>
+    <string name="tracking_stopped">Rastreo detenido</string>
+    <string name="enter_phone_number">Ingrese un número de teléfono</string>
+    <string name="gps_signal_lost">Señal GPS perdida</string>
+    <string name="message_sent">Mensaje enviado</string>
+    <string name="message_failed">Error al enviar mensaje</string>
+</resources>

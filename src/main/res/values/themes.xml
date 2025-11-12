@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Z_U3_CORONADO_SANCHEZ_ANGEL_GABRIEL" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
