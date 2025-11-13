@@ -48,14 +48,53 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Agregado: Receptor de comandos remotos
+    private val receptorComandos = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                "com.accion.DETENER_RASTREO" -> {
+                    // Detener el rastreo remotamente
+                    modeloVistaUbicacion.detenerRastreo()
+                }
+                "com.accion.INICIAR_RASTREO" -> {
+                    // Iniciar el rastreo remotamente
+                    val estadoActual = modeloVistaUbicacion.estadoInterfaz.value
+                    if (estadoActual.numeroTelefono.isNotEmpty()) {
+                        iniciarActualizacionesUbicacion()
+                        modeloVistaUbicacion.iniciarRastreo(
+                            estadoActual.numeroTelefono,
+                            this@MainActivity
+                        )
+                    }
+                }
+                "com.accion.SOLICITAR_ESTADO" -> {
+                    // Enviar el estado actual por SMS
+                    val numeroRemitente = intent.getStringExtra("numero_remitente")
+                    if (numeroRemitente != null) {
+                        enviarEstadoPorSMS(numeroRemitente)
+                    }
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // Se inicializa Mapbox con el token de acceso público
-        Mapbox.getInstance(this, "TOKEN") // Aún no se pone pipipi
+        // API de mapbox
+        Mapbox.getInstance(this, "pk.eyJ1IjoidmFsZTAyYmVybXVkZXoiLCJhIjoiY21oazMwMnZ4MWNlZTJycHRnOTVzdGRtdyJ9.fHvBr0qwI1JZDxJ6ed-ENg")
 
         // Se obtiene la instancia del cliente de ubicación
         clienteUbicacionFusionado = LocationServices.getFusedLocationProviderClient(this)
+
+        // Agregado: Registra el receptor de comandos
+        val filtro = IntentFilter().apply {
+            addAction("com.accion.DETENER_RASTREO")
+            addAction("com.accion.INICIAR_RASTREO")
+            addAction("com.accion.SOLICITAR_ESTADO")
+        }
+        registerReceiver(receptorComandos, filtro, RECEIVER_NOT_EXPORTED)
 
         setContent {
             AppTheme {
@@ -78,6 +117,40 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Agregado: Funcion para enviar estado por SMS
+    private fun enviarEstadoPorSMS(numeroDestino: String) {
+        try {
+            val estado = modeloVistaUbicacion.estadoInterfaz.value
+            val gestorSms = SmsManager.getDefault()
+
+            // Construir mensaje con el estado actual
+            val mensaje = buildString {
+                append("Estado del rastreo:\n")
+                append("Estado: ${if (estado.estaRastreando) "ACTIVO" else "INACTIVO"}\n")
+                append("Mensajes enviados: ${estado.mensajesEnviados}\n")
+                append("Última actualización: ${estado.ultimaActualizacion}\n")
+
+                estado.ubicacionActual?.let { ubicacion ->
+                    append("Ubicación actual:\n")
+                    append("Lat: ${ubicacion.latitud}\n")
+                    append("Lng: ${ubicacion.longitud}\n")
+                    append("Mapa: https://maps.google.com/?q=${ubicacion.latitud},${ubicacion.longitud}")
+                } ?: append("Sin ubicación disponible")
+            }
+
+            // Enviar el SMS
+            gestorSms.sendTextMessage(
+                numeroDestino,
+                null,
+                mensaje,
+                null,
+                null
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     /**
      * Se solicitan los permisos necesarios para ubicación y SMS
      */
@@ -86,7 +159,9 @@ class MainActivity : ComponentActivity() {
             arrayOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.SEND_SMS
+                Manifest.permission.SEND_SMS,
+                // Agregado permiso de recepcion de SMS
+                Manifest.permission.RECEIVE_SMS
             )
         )
     }
@@ -126,6 +201,16 @@ class MainActivity : ComponentActivity() {
                 llamadaRetornoUbicacion,
                 mainLooper
             )
+        }
+    }
+
+    // Agregado: Limpia el receptor cuando se destruye la actividad
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(receptorComandos)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 }
