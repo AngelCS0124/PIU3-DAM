@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "upv_dap.sep_dic_25.itiid_76129.piu3.coronado_sanchez"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"

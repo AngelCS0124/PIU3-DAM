@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // Se inicializa Mapbox con el token de acceso público
-        Mapbox.getInstance(this, "TOKEN") // Aún no se pone pipipi
+        Mapbox.getInstance(this, "pk.eyJ1IjoidmFsZTAyYmVybXVkZXoiLCJhIjoiY21oazMwMnZ4MWNlZTJycHRnOTVzdGRtdyJ9.fHvBr0qwI1JZDxJ6ed-ENg") // Aún no se pone pipipi
 
         // Se obtiene la instancia del cliente de ubicación
         clienteUbicacionFusionado = LocationServices.getFusedLocationProviderClient(this)
