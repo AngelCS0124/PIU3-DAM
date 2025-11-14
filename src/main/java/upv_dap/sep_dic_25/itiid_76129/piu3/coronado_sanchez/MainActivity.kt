@@ -148,7 +148,7 @@ fun AplicacionLocalizame(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Z_U3_CORONADO_SANCHEZ_ANGEL_GABRIEL") },
+                title = { Text("Localizame") },
                 actions = {
                     IconButton(onClick = { mostrarConfiguracion = true }) {
                         Icon(Icons.Default.Settings, "Configuración")
