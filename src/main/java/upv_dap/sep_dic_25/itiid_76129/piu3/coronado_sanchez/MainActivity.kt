@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // Se inicializa Mapbox con el token de acceso público
-        Mapbox.getInstance(this, "pk.eyJ1IjoidmFsZTAyYmVybXVkZXoiLCJhIjoiY21oazMwMnZ4MWNlZTJycHRnOTVzdGRtdyJ9.fHvBr0qwI1JZDxJ6ed-ENg") // Aún no se pone pipipi
+        Mapbox.getInstance(this, "pk.eyJ1IjoiYW5nZWxjb3JvbmFkbyIsImEiOiJjbTNydnRsbTIwYW9pMmxxdTA3cDhqeDNsIn0.8vOXQF3aZLZOCN-kfFVVcw")
 
         // Se obtiene la instancia del cliente de ubicación
         clienteUbicacionFusionado = LocationServices.getFusedLocationProviderClient(this)
@@ -86,7 +86,10 @@ class MainActivity : ComponentActivity() {
             arrayOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.SEND_SMS
+                Manifest.permission.SEND_SMS,
+                Manifest.permission.READ_SMS,
+                Manifest.permission.RECEIVE_SMS,
+                Manifest.permission.READ_PHONE_STATE
             )
         )
     }
@@ -148,7 +151,7 @@ fun AplicacionLocalizame(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Localizame") },
+                title = { Text("Z_U3_CORONADO_SANCHEZ_ANGEL_GABRIEL") },
                 actions = {
                     IconButton(onClick = { mostrarConfiguracion = true }) {
                         Icon(Icons.Default.Settings, "Configuración")

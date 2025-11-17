@@ -2,9 +2,11 @@ package upv_dap.sep_dic_25.itiid_76129.piu3.coronado_sanchez
 
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import android.telephony.SmsManager
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
@@ -181,69 +183,122 @@ class ModeloVistaUbicacion : ViewModel() {
      */
     private fun enviarUbicacionPorSMS(numeroTelefono: String, ubicacion: DatosUbicacion) {
         try {
-            android.util.Log.d("SMS_DEBUG", "Intentando enviar SMS a: $numeroTelefono")
+            // Se limpia el número de teléfono (quita espacios, guiones, paréntesis)
+            val numeroLimpio = numeroTelefono.replace(Regex("[\\s\\-()]+"), "")
+
+            android.util.Log.d("SMS_DEBUG", "=== INICIO ENVÍO SMS ===")
+            android.util.Log.d("SMS_DEBUG", "Número original: $numeroTelefono")
+            android.util.Log.d("SMS_DEBUG", "Número limpio: $numeroLimpio")
             android.util.Log.d("SMS_DEBUG", "Coordenadas: ${ubicacion.latitud}, ${ubicacion.longitud}")
+
+            // Validar que el número limpio no esté vacío
+            if (numeroLimpio.isEmpty()) {
+                val error = "❌ Número de teléfono vacío después de limpieza"
+                android.util.Log.e("SMS_ERROR", error)
+                contexto?.let {
+                    Toast.makeText(it, error, Toast.LENGTH_LONG).show()
+                }
+                return
+            }
 
             // Se valida que el contexto esté disponible
             if (contexto == null) {
                 val error = "Error: Contexto no disponible"
                 android.util.Log.e("SMS_ERROR", error)
+                contexto?.let {
+                    Toast.makeText(it, error, Toast.LENGTH_LONG).show()
+                }
                 return
             }
 
-            // Se obtiene el gestor de SMS del sistema
-            val gestorSms = SmsManager.getDefault()
+            // Verificar permiso en tiempo real
+            if (android.content.pm.PackageManager.PERMISSION_GRANTED !=
+                androidx.core.content.ContextCompat.checkSelfPermission(contexto!!, android.Manifest.permission.SEND_SMS)) {
+                val error = "❌ Permiso SEND_SMS no otorgado"
+                android.util.Log.e("SMS_ERROR", error)
+                contexto?.let {
+                    Toast.makeText(it, error, Toast.LENGTH_LONG).show()
+                }
+                return
+            }
+            android.util.Log.d("SMS_DEBUG", "✅ Permiso SEND_SMS verificado")
 
             // Se construye el mensaje con las coordenadas y enlace de Google Maps
             val mensaje = "Ubicación GPS:\nLat: ${ubicacion.latitud}\nLng: ${ubicacion.longitud}\n" +
                     "Ver en mapa: https://maps.google.com/?q=${ubicacion.latitud},${ubicacion.longitud}"
 
-            android.util.Log.d("SMS_DEBUG", "Mensaje: $mensaje")
+            android.util.Log.d("SMS_DEBUG", "Mensaje construido: $mensaje")
+            android.util.Log.d("SMS_DEBUG", "Longitud del mensaje: ${mensaje.length} caracteres")
 
-            // Se crea el PendingIntent para confirmar el envío
-            val intentEnvio = Intent("SMS_ENVIADO")
-            val pendingIntentEnvio = PendingIntent.getBroadcast(
-                contexto,
-                0,
-                intentEnvio,
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
+            // Se obtiene el gestor de SMS del sistema
+            val gestorSms = try {
+                SmsManager.getDefault()
+            } catch (e: Exception) {
+                android.util.Log.e("SMS_ERROR", "Error al obtener SmsManager: ${e.message}")
+                contexto?.let {
+                    Toast.makeText(it, "❌ Error al obtener gestor SMS", Toast.LENGTH_LONG).show()
+                }
+                return
+            }
 
-            // Se envía el mensaje de texto con confirmación
-            gestorSms.sendTextMessage(
-                numeroTelefono,
-                null,
-                mensaje,
-                pendingIntentEnvio,
-                null
-            )
+            android.util.Log.d("SMS_DEBUG", "✅ SmsManager obtenido correctamente")
 
-            android.util.Log.d("SMS_DEBUG", "SMS enviado al sistema")
+            // Si el mensaje es muy largo, se divide en partes
+            if (mensaje.length > 160) {
+                val partes = gestorSms.divideMessage(mensaje)
+                android.util.Log.d("SMS_DEBUG", "Mensaje dividido en ${partes.size} partes")
+
+                gestorSms.sendMultipartTextMessage(
+                    numeroLimpio,
+                    null,
+                    partes,
+                    null,
+                    null
+                )
+                android.util.Log.d("SMS_DEBUG", "sendMultipartTextMessage ejecutado")
+            } else {
+                android.util.Log.d("SMS_DEBUG", "Enviando mensaje simple...")
+                gestorSms.sendTextMessage(
+                    numeroLimpio,
+                    null,
+                    mensaje,
+                    null,
+                    null
+                )
+                android.util.Log.d("SMS_DEBUG", "sendTextMessage ejecutado")
+            }
+
+            android.util.Log.d("SMS_DEBUG", "=== FUNCIÓN SEND COMPLETADA SIN EXCEPCIONES ===")
+
+            contexto?.let {
+                Toast.makeText(it, "📤 SMS enviado a $numeroLimpio", Toast.LENGTH_SHORT).show()
+            }
 
             // Se actualiza el contador de mensajes enviados
             _estadoInterfaz.value = _estadoInterfaz.value.copy(
                 mensajesEnviados = _estadoInterfaz.value.mensajesEnviados + 1,
                 ultimaActualizacion = formatoFecha.format(Date())
             )
+
         } catch (e: SecurityException) {
-            val error = "❌ Error: Permiso SMS denegado"
+            val error = "❌ SecurityException: Permiso SMS denegado - ${e.message}"
             android.util.Log.e("SMS_ERROR", error, e)
             contexto?.let {
                 Toast.makeText(it, error, Toast.LENGTH_LONG).show()
             }
         } catch (e: IllegalArgumentException) {
-            val error = "❌ Error: Número de teléfono inválido"
+            val error = "❌ IllegalArgumentException: Número inválido - ${e.message}"
             android.util.Log.e("SMS_ERROR", error, e)
             contexto?.let {
                 Toast.makeText(it, error, Toast.LENGTH_LONG).show()
             }
         } catch (e: Exception) {
-            val error = "❌ Error al enviar SMS: ${e.message}"
+            val error = "❌ Exception: ${e.javaClass.simpleName} - ${e.message}"
             android.util.Log.e("SMS_ERROR", error, e)
+            e.printStackTrace()
             contexto?.let {
                 Toast.makeText(it, error, Toast.LENGTH_LONG).show()
             }
-            e.printStackTrace()
         }
     }
 
