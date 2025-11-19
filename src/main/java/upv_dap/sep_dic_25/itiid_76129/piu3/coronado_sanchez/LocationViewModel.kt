@@ -63,6 +63,12 @@ class ModeloVistaUbicacion : ViewModel() {
     // Flag para rastrear si el receptor está registrado
     private var receptorRegistrado = false
 
+    // Constantes para las acciones de SMS
+    companion object {
+        private const val SMS_SENT_ACTION = "android.provider.Telephony.SMS_SENT"
+        private const val SMS_DELIVERED_ACTION = "android.provider.Telephony.SMS_DELIVERED"
+    }
+
     /**
      * Aquí se lleva a cabo la actualización de la ubicación GPS actual
      */
@@ -146,9 +152,9 @@ class ModeloVistaUbicacion : ViewModel() {
     private fun registrarReceptorSMS(contexto: Context) {
         try {
             // Se usa la acción del sistema para SMS enviados
-            val filtroEnviado = IntentFilter(SmsManager.SMS_SENT_ACTION)
+            val filtroEnviado = IntentFilter(SMS_SENT_ACTION)
             // Se usa la acción del sistema para SMS entregados
-            val filtroEntregado = IntentFilter(SmsManager.SMS_DELIVERED_ACTION)
+            val filtroEntregado = IntentFilter(SMS_DELIVERED_ACTION)
             
             // Se registran ambos filtros
             contexto.registerReceiver(receptorEnvioSMS, filtroEnviado, Context.RECEIVER_NOT_EXPORTED)
@@ -295,14 +301,14 @@ class ModeloVistaUbicacion : ViewModel() {
             val intentEnviado = PendingIntent.getBroadcast(
                 contexto,
                 0,
-                Intent(SmsManager.SMS_SENT_ACTION),
+                Intent(SMS_SENT_ACTION),
                 flagsPendingIntent
             )
 
             val intentEntregado = PendingIntent.getBroadcast(
                 contexto,
                 0,
-                Intent(SmsManager.SMS_DELIVERED_ACTION),
+                Intent(SMS_DELIVERED_ACTION),
                 flagsPendingIntent
             )
 
