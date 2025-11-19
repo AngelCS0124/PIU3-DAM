@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
+import android.os.Build
 import android.telephony.SmsManager
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
@@ -59,6 +60,9 @@ class ModeloVistaUbicacion : ViewModel() {
     // Se inicializa el formato de fecha para las actualizaciones
     private val formatoFecha = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
+    // Flag para rastrear si el receptor está registrado
+    private var receptorRegistrado = false
+
     /**
      * Aquí se lleva a cabo la actualización de la ubicación GPS actual
      */
@@ -89,8 +93,11 @@ class ModeloVistaUbicacion : ViewModel() {
     fun iniciarRastreo(numeroTelefono: String, contexto: Context) {
         this.contexto = contexto
 
-        // Se registra el receptor de confirmación de SMS
-        registrarReceptorSMS(contexto)
+        // Se registra el receptor de confirmación de SMS solo si no está registrado
+        if (!receptorRegistrado) {
+            registrarReceptorSMS(contexto)
+            receptorRegistrado = true
+        }
 
         // Se actualiza el estado para indicar que el rastreo está activo
         _estadoInterfaz.value = _estadoInterfaz.value.copy(
@@ -118,11 +125,18 @@ class ModeloVistaUbicacion : ViewModel() {
         trabajoRastreo?.cancel()
         _estadoInterfaz.value = _estadoInterfaz.value.copy(estaRastreando = false)
 
-        // Se desregistra el receptor de SMS
-        try {
-            contexto?.unregisterReceiver(receptorEnvioSMS)
-        } catch (e: Exception) {
-            android.util.Log.e("SMS_ERROR", "Error al desregistrar receptor: ${e.message}")
+        // Se desregistran ambos receptores de SMS solo si están registrados
+        if (receptorRegistrado) {
+            try {
+                contexto?.unregisterReceiver(receptorEnvioSMS)
+                contexto?.unregisterReceiver(receptorEntregaSMS)
+                receptorRegistrado = false
+                android.util.Log.d("SMS_RECEIVER", "Receptores desregistrados correctamente")
+            } catch (e: IllegalArgumentException) {
+                android.util.Log.e("SMS_ERROR", "Receptores no registrados: ${e.message}")
+            } catch (e: Exception) {
+                android.util.Log.e("SMS_ERROR", "Error al desregistrar receptores: ${e.message}")
+            }
         }
     }
 
@@ -130,8 +144,20 @@ class ModeloVistaUbicacion : ViewModel() {
      * Aquí se registra el receptor para confirmar el estado del envío de SMS
      */
     private fun registrarReceptorSMS(contexto: Context) {
-        val filtro = IntentFilter("SMS_ENVIADO")
-        contexto.registerReceiver(receptorEnvioSMS, filtro, Context.RECEIVER_NOT_EXPORTED)
+        try {
+            // Se usa la acción del sistema para SMS enviados
+            val filtroEnviado = IntentFilter(SmsManager.SMS_SENT_ACTION)
+            // Se usa la acción del sistema para SMS entregados
+            val filtroEntregado = IntentFilter(SmsManager.SMS_DELIVERED_ACTION)
+            
+            // Se registran ambos filtros
+            contexto.registerReceiver(receptorEnvioSMS, filtroEnviado, Context.RECEIVER_NOT_EXPORTED)
+            contexto.registerReceiver(receptorEntregaSMS, filtroEntregado, Context.RECEIVER_NOT_EXPORTED)
+            
+            android.util.Log.d("SMS_RECEIVER", "Receptores registrados correctamente")
+        } catch (e: Exception) {
+            android.util.Log.e("SMS_ERROR", "Error al registrar receptores: ${e.message}")
+        }
     }
 
     /**
@@ -173,6 +199,22 @@ class ModeloVistaUbicacion : ViewModel() {
                     contexto?.let {
                         Toast.makeText(it, error, Toast.LENGTH_LONG).show()
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Receptor que confirma si el SMS fue entregado exitosamente
+     */
+    private val receptorEntregaSMS = object : BroadcastReceiver() {
+        override fun onReceive(contexto: Context?, intent: Intent?) {
+            when (resultCode) {
+                android.app.Activity.RESULT_OK -> {
+                    android.util.Log.d("SMS_ENTREGADO", "✅ SMS entregado al destinatario")
+                }
+                android.app.Activity.RESULT_CANCELED -> {
+                    android.util.Log.e("SMS_ERROR", "❌ SMS no entregado")
                 }
             }
         }
@@ -243,17 +285,48 @@ class ModeloVistaUbicacion : ViewModel() {
 
             android.util.Log.d("SMS_DEBUG", "✅ SmsManager obtenido correctamente")
 
+            // Se crean los PendingIntent para confirmar envío y entrega
+            val flagsPendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_IMMUTABLE
+            } else {
+                0
+            }
+
+            val intentEnviado = PendingIntent.getBroadcast(
+                contexto,
+                0,
+                Intent(SmsManager.SMS_SENT_ACTION),
+                flagsPendingIntent
+            )
+
+            val intentEntregado = PendingIntent.getBroadcast(
+                contexto,
+                0,
+                Intent(SmsManager.SMS_DELIVERED_ACTION),
+                flagsPendingIntent
+            )
+
+            android.util.Log.d("SMS_DEBUG", "✅ PendingIntents creados correctamente")
+
             // Si el mensaje es muy largo, se divide en partes
             if (mensaje.length > 160) {
                 val partes = gestorSms.divideMessage(mensaje)
                 android.util.Log.d("SMS_DEBUG", "Mensaje dividido en ${partes.size} partes")
 
+                // Se crean listas de PendingIntent para cada parte
+                val intentosEnviados = ArrayList<PendingIntent>()
+                val intentosEntregados = ArrayList<PendingIntent>()
+                for (i in partes.indices) {
+                    intentosEnviados.add(intentEnviado)
+                    intentosEntregados.add(intentEntregado)
+                }
+
                 gestorSms.sendMultipartTextMessage(
                     numeroLimpio,
                     null,
                     partes,
-                    null,
-                    null
+                    intentosEnviados,
+                    intentosEntregados
                 )
                 android.util.Log.d("SMS_DEBUG", "sendMultipartTextMessage ejecutado")
             } else {
@@ -262,8 +335,8 @@ class ModeloVistaUbicacion : ViewModel() {
                     numeroLimpio,
                     null,
                     mensaje,
-                    null,
-                    null
+                    intentEnviado,
+                    intentEntregado
                 )
                 android.util.Log.d("SMS_DEBUG", "sendTextMessage ejecutado")
             }
