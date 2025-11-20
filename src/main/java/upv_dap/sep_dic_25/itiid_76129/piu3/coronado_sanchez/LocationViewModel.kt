@@ -227,7 +227,8 @@ class ModeloVistaUbicacion : ViewModel() {
             }
 
             // Construir mensaje más simple para pruebas
-            val mensaje = "Ubicacion: ${ubicacion.latitud}, ${ubicacion.longitud}"
+            val mensaje = "Localizame App - Ubicacion: ${ubicacion.latitud}, ${ubicacion.longitud}" +
+                    ", Mapa: https://maps.google.com/?q=${ubicacion.latitud},${ubicacion.longitud}"
 
             android.util.Log.d("SMS_DEBUG", "Enviando a: $numeroTelefono")
             android.util.Log.d("SMS_DEBUG", "Mensaje: $mensaje")

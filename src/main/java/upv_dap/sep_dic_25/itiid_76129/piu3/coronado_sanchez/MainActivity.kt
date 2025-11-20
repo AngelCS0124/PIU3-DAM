@@ -167,7 +167,7 @@ fun AplicacionLocalizame(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Z_U3_CORONADO_SANCHEZ_ANGEL_GABRIEL") },
+                title = { Text("Localizame") },
                 actions = {
                     IconButton(onClick = { mostrarConfiguracion = true }) {
                         Icon(Icons.Default.Settings, "Configuración")
@@ -490,7 +490,7 @@ fun DialogoConfiguracion(
                     Slider(
                         value = intervaloActualizacion.toFloat(),
                         onValueChange = { alCambiarIntervalo(it.toInt()) },
-                        valueRange = 10f..300f,
+                        valueRange = 30f..300f,
                         steps = 28
                     )
                 }
