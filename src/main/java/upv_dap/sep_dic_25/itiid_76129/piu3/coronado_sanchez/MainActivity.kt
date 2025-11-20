@@ -22,8 +22,6 @@ import com.mapbox.mapboxsdk.geometry.LatLng
 import com.mapbox.mapboxsdk.maps.MapView
 import com.mapbox.mapboxsdk.maps.MapboxMap
 import com.mapbox.mapboxsdk.maps.Style
-import com.mapbox.mapboxsdk.plugins.annotation.SymbolManager
-import com.mapbox.mapboxsdk.plugins.annotation.SymbolOptions
 import upv_dap.sep_dic_25.itiid_76129.piu3.coronado_sanchez.ui.theme.AppTheme
 import com.google.android.gms.location.*
 
