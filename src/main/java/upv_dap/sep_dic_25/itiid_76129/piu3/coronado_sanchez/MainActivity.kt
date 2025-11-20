@@ -94,6 +94,24 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun verificarYPedirPermisos(): Boolean {
+        val permisosRequeridos = arrayOf(
+            Manifest.permission.SEND_SMS,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+
+        val permisosFaltantes = permisosRequeridos.filter { permiso ->
+            ContextCompat.checkSelfPermission(this, permiso) != PackageManager.PERMISSION_GRANTED
+        }
+
+        return if (permisosFaltantes.isNotEmpty()) {
+            lanzadorPermisos.launch(permisosFaltantes.toTypedArray())
+            false
+        } else {
+            true
+        }
+    }
+
     /**
      * Aquí se lleva a cabo el inicio de las actualizaciones continuas de ubicación GPS
      */

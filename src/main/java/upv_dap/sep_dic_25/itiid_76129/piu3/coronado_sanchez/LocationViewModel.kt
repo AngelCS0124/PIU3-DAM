@@ -1,13 +1,11 @@
 package upv_dap.sep_dic_25.itiid_76129.piu3.coronado_sanchez
 
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
-import android.os.Build
 import android.telephony.SmsManager
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
@@ -60,15 +58,6 @@ class ModeloVistaUbicacion : ViewModel() {
     // Se inicializa el formato de fecha para las actualizaciones
     private val formatoFecha = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
-    // Flag para rastrear si el receptor está registrado
-    private var receptorRegistrado = false
-
-    // Constantes para las acciones de SMS
-    companion object {
-        private const val SMS_SENT_ACTION = "android.provider.Telephony.SMS_SENT"
-        private const val SMS_DELIVERED_ACTION = "android.provider.Telephony.SMS_DELIVERED"
-    }
-
     /**
      * Aquí se lleva a cabo la actualización de la ubicación GPS actual
      */
@@ -99,26 +88,30 @@ class ModeloVistaUbicacion : ViewModel() {
     fun iniciarRastreo(numeroTelefono: String, contexto: Context) {
         this.contexto = contexto
 
-        // Se registra el receptor de confirmación de SMS solo si no está registrado
-        if (!receptorRegistrado) {
-            registrarReceptorSMS(contexto)
-            receptorRegistrado = true
+        // Validar número de teléfono
+        val numeroLimpio = numeroTelefono.replace(Regex("[\\s\\-()]+"), "")
+        if (numeroLimpio.length < 10) {
+            Toast.makeText(contexto, "❌ Número de teléfono inválido", Toast.LENGTH_LONG).show()
+            return
         }
 
-        // Se actualiza el estado para indicar que el rastreo está activo
+        // Registrar receptor de SMS
+        try {
+            registrarReceptorSMS(contexto)
+        } catch (e: Exception) {
+            android.util.Log.e("SMS_ERROR", "Error al registrar receptor: ${e.message}")
+        }
+
         _estadoInterfaz.value = _estadoInterfaz.value.copy(
             estaRastreando = true,
             numeroTelefono = numeroTelefono
         )
 
-        // Se inicia una corrutina que enviará SMS periódicamente
         trabajoRastreo = viewModelScope.launch {
             while (_estadoInterfaz.value.estaRastreando) {
                 _estadoInterfaz.value.ubicacionActual?.let { ubicacion ->
-                    // Se envía la ubicación actual por SMS
-                    enviarUbicacionPorSMS(numeroTelefono, ubicacion)
+                    enviarUbicacionPorSMS(numeroLimpio, ubicacion)
                 }
-                // Se espera el intervalo configurado antes del siguiente envío
                 delay(_estadoInterfaz.value.intervaloActualizacion * 1000L)
             }
         }
@@ -131,18 +124,11 @@ class ModeloVistaUbicacion : ViewModel() {
         trabajoRastreo?.cancel()
         _estadoInterfaz.value = _estadoInterfaz.value.copy(estaRastreando = false)
 
-        // Se desregistran ambos receptores de SMS solo si están registrados
-        if (receptorRegistrado) {
-            try {
-                contexto?.unregisterReceiver(receptorEnvioSMS)
-                contexto?.unregisterReceiver(receptorEntregaSMS)
-                receptorRegistrado = false
-                android.util.Log.d("SMS_RECEIVER", "Receptores desregistrados correctamente")
-            } catch (e: IllegalArgumentException) {
-                android.util.Log.e("SMS_ERROR", "Receptores no registrados: ${e.message}")
-            } catch (e: Exception) {
-                android.util.Log.e("SMS_ERROR", "Error al desregistrar receptores: ${e.message}")
-            }
+        // Se desregistra el receptor de SMS
+        try {
+            contexto?.unregisterReceiver(receptorEnvioSMS)
+        } catch (e: Exception) {
+            android.util.Log.e("SMS_ERROR", "Error al desregistrar receptor: ${e.message}")
         }
     }
 
@@ -150,20 +136,11 @@ class ModeloVistaUbicacion : ViewModel() {
      * Aquí se registra el receptor para confirmar el estado del envío de SMS
      */
     private fun registrarReceptorSMS(contexto: Context) {
-        try {
-            // Se usa la acción del sistema para SMS enviados
-            val filtroEnviado = IntentFilter(SMS_SENT_ACTION)
-            // Se usa la acción del sistema para SMS entregados
-            val filtroEntregado = IntentFilter(SMS_DELIVERED_ACTION)
-            
-            // Se registran ambos filtros
-            contexto.registerReceiver(receptorEnvioSMS, filtroEnviado, Context.RECEIVER_NOT_EXPORTED)
-            contexto.registerReceiver(receptorEntregaSMS, filtroEntregado, Context.RECEIVER_NOT_EXPORTED)
-            
-            android.util.Log.d("SMS_RECEIVER", "Receptores registrados correctamente")
-        } catch (e: Exception) {
-            android.util.Log.e("SMS_ERROR", "Error al registrar receptores: ${e.message}")
-        }
+        val filtroEnvio = IntentFilter("SMS_ENVIADO")
+        val filtroEntrega = IntentFilter("SMS_ENTREGADO")
+
+        contexto.registerReceiver(receptorEnvioSMS, filtroEnvio, Context.RECEIVER_NOT_EXPORTED)
+        contexto.registerReceiver(receptorEntregaSMS, filtroEntrega, Context.RECEIVER_NOT_EXPORTED)
     }
 
     /**
@@ -210,17 +187,17 @@ class ModeloVistaUbicacion : ViewModel() {
         }
     }
 
-    /**
-     * Receptor que confirma si el SMS fue entregado exitosamente
-     */
     private val receptorEntregaSMS = object : BroadcastReceiver() {
-        override fun onReceive(contexto: Context?, intent: Intent?) {
+        override fun onReceive(context: Context?, intent: Intent?) {
             when (resultCode) {
                 android.app.Activity.RESULT_OK -> {
                     android.util.Log.d("SMS_ENTREGADO", "✅ SMS entregado al destinatario")
+                    contexto?.let {
+                        Toast.makeText(it, "✅ SMS entregado", Toast.LENGTH_SHORT).show()
+                    }
                 }
-                android.app.Activity.RESULT_CANCELED -> {
-                    android.util.Log.e("SMS_ERROR", "❌ SMS no entregado")
+                else -> {
+                    android.util.Log.e("SMS_ENTREGADO", "❌ SMS no entregado")
                 }
             }
         }
@@ -231,27 +208,17 @@ class ModeloVistaUbicacion : ViewModel() {
      */
     private fun enviarUbicacionPorSMS(numeroTelefono: String, ubicacion: DatosUbicacion) {
         try {
-            // Se limpia el número de teléfono (quita espacios, guiones, paréntesis)
-            val numeroLimpio = numeroTelefono.replace(Regex("[\\s\\-()]+"), "")
-
-            android.util.Log.d("SMS_DEBUG", "=== INICIO ENVÍO SMS ===")
-            android.util.Log.d("SMS_DEBUG", "Número original: $numeroTelefono")
-            android.util.Log.d("SMS_DEBUG", "Número limpio: $numeroLimpio")
-            android.util.Log.d("SMS_DEBUG", "Coordenadas: ${ubicacion.latitud}, ${ubicacion.longitud}")
-
-            // Validar que el número limpio no esté vacío
-            if (numeroLimpio.isEmpty()) {
-                val error = "❌ Número de teléfono vacío después de limpieza"
-                android.util.Log.e("SMS_ERROR", error)
-                contexto?.let {
-                    Toast.makeText(it, error, Toast.LENGTH_LONG).show()
-                }
-                return
-            }
-
-            // Se valida que el contexto esté disponible
+            // Validaciones adicionales
             if (contexto == null) {
-                val error = "Error: Contexto no disponible"
+                android.util.Log.e("SMS_ERROR", "Contexto nulo")
+                return
+            }
+
+            // Verificar si hay servicio de SMS disponible
+            val gestorSms = SmsManager.getDefault()
+            val subsInfo = gestorSms.subscriptionId
+            if (subsInfo == -1) {
+                val error = "❌ No hay SIM card disponible"
                 android.util.Log.e("SMS_ERROR", error)
                 contexto?.let {
                     Toast.makeText(it, error, Toast.LENGTH_LONG).show()
@@ -259,122 +226,62 @@ class ModeloVistaUbicacion : ViewModel() {
                 return
             }
 
-            // Verificar permiso en tiempo real
-            if (android.content.pm.PackageManager.PERMISSION_GRANTED !=
-                androidx.core.content.ContextCompat.checkSelfPermission(contexto!!, android.Manifest.permission.SEND_SMS)) {
-                val error = "❌ Permiso SEND_SMS no otorgado"
-                android.util.Log.e("SMS_ERROR", error)
-                contexto?.let {
-                    Toast.makeText(it, error, Toast.LENGTH_LONG).show()
-                }
-                return
-            }
-            android.util.Log.d("SMS_DEBUG", "✅ Permiso SEND_SMS verificado")
+            // Construir mensaje más simple para pruebas
+            val mensaje = "Ubicacion: ${ubicacion.latitud}, ${ubicacion.longitud}"
 
-            // Se construye el mensaje con las coordenadas y enlace de Google Maps
-            val mensaje = "Ubicación GPS:\nLat: ${ubicacion.latitud}\nLng: ${ubicacion.longitud}\n" +
-                    "Ver en mapa: https://maps.google.com/?q=${ubicacion.latitud},${ubicacion.longitud}"
+            android.util.Log.d("SMS_DEBUG", "Enviando a: $numeroTelefono")
+            android.util.Log.d("SMS_DEBUG", "Mensaje: $mensaje")
 
-            android.util.Log.d("SMS_DEBUG", "Mensaje construido: $mensaje")
-            android.util.Log.d("SMS_DEBUG", "Longitud del mensaje: ${mensaje.length} caracteres")
-
-            // Se obtiene el gestor de SMS del sistema
-            val gestorSms = try {
-                SmsManager.getDefault()
-            } catch (e: Exception) {
-                android.util.Log.e("SMS_ERROR", "Error al obtener SmsManager: ${e.message}")
-                contexto?.let {
-                    Toast.makeText(it, "❌ Error al obtener gestor SMS", Toast.LENGTH_LONG).show()
-                }
-                return
-            }
-
-            android.util.Log.d("SMS_DEBUG", "✅ SmsManager obtenido correctamente")
-
-            // Se crean los PendingIntent para confirmar envío y entrega
-            val flagsPendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_IMMUTABLE
-            } else {
-                0
-            }
-
-            val intentEnviado = PendingIntent.getBroadcast(
-                contexto,
+            // Intent para confirmación de envío
+            val intentEnvio = Intent("SMS_ENVIADO")
+            val pendingIntent = android.app.PendingIntent.getBroadcast(
+                contexto!!,
                 0,
-                Intent(SMS_SENT_ACTION),
-                flagsPendingIntent
+                intentEnvio,
+                android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
             )
 
-            val intentEntregado = PendingIntent.getBroadcast(
-                contexto,
+            // Intent para confirmación de entrega (opcional)
+            val intentEntrega = Intent("SMS_ENTREGADO")
+            val pendingIntentEntrega = android.app.PendingIntent.getBroadcast(
+                contexto!!,
                 0,
-                Intent(SMS_DELIVERED_ACTION),
-                flagsPendingIntent
+                intentEntrega,
+                android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
             )
 
-            android.util.Log.d("SMS_DEBUG", "✅ PendingIntents creados correctamente")
+            // Enviar SMS
+            gestorSms.sendTextMessage(
+                numeroTelefono,
+                null,
+                mensaje,
+                pendingIntent,
+                pendingIntentEntrega
+            )
 
-            // Si el mensaje es muy largo, se divide en partes
-            if (mensaje.length > 160) {
-                val partes = gestorSms.divideMessage(mensaje)
-                android.util.Log.d("SMS_DEBUG", "Mensaje dividido en ${partes.size} partes")
+            android.util.Log.d("SMS_DEBUG", "SMS enviado exitosamente")
 
-                // Se crean listas de PendingIntent para cada parte
-                val intentosEnviados = ArrayList<PendingIntent>()
-                val intentosEntregados = ArrayList<PendingIntent>()
-                for (i in partes.indices) {
-                    intentosEnviados.add(intentEnviado)
-                    intentosEntregados.add(intentEntregado)
-                }
-
-                gestorSms.sendMultipartTextMessage(
-                    numeroLimpio,
-                    null,
-                    partes,
-                    intentosEnviados,
-                    intentosEntregados
-                )
-                android.util.Log.d("SMS_DEBUG", "sendMultipartTextMessage ejecutado")
-            } else {
-                android.util.Log.d("SMS_DEBUG", "Enviando mensaje simple...")
-                gestorSms.sendTextMessage(
-                    numeroLimpio,
-                    null,
-                    mensaje,
-                    intentEnviado,
-                    intentEntregado
-                )
-                android.util.Log.d("SMS_DEBUG", "sendTextMessage ejecutado")
-            }
-
-            android.util.Log.d("SMS_DEBUG", "=== FUNCIÓN SEND COMPLETADA SIN EXCEPCIONES ===")
-
-            contexto?.let {
-                Toast.makeText(it, "📤 SMS enviado a $numeroLimpio", Toast.LENGTH_SHORT).show()
-            }
-
-            // Se actualiza el contador de mensajes enviados
+            // Actualizar estado
             _estadoInterfaz.value = _estadoInterfaz.value.copy(
                 mensajesEnviados = _estadoInterfaz.value.mensajesEnviados + 1,
                 ultimaActualizacion = formatoFecha.format(Date())
             )
 
         } catch (e: SecurityException) {
-            val error = "❌ SecurityException: Permiso SMS denegado - ${e.message}"
+            val error = "❌ Permiso SMS denegado: ${e.message}"
             android.util.Log.e("SMS_ERROR", error, e)
             contexto?.let {
                 Toast.makeText(it, error, Toast.LENGTH_LONG).show()
             }
         } catch (e: IllegalArgumentException) {
-            val error = "❌ IllegalArgumentException: Número inválido - ${e.message}"
+            val error = "❌ Número inválido: ${e.message}"
             android.util.Log.e("SMS_ERROR", error, e)
             contexto?.let {
                 Toast.makeText(it, error, Toast.LENGTH_LONG).show()
             }
         } catch (e: Exception) {
-            val error = "❌ Exception: ${e.javaClass.simpleName} - ${e.message}"
+            val error = "❌ Error: ${e.javaClass.simpleName} - ${e.message}"
             android.util.Log.e("SMS_ERROR", error, e)
-            e.printStackTrace()
             contexto?.let {
                 Toast.makeText(it, error, Toast.LENGTH_LONG).show()
             }
@@ -387,5 +294,29 @@ class ModeloVistaUbicacion : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         detenerRastreo()
+    }
+
+    /**
+     * Guarda el SMS enviado en la base de datos del sistema para que aparezca en la app de mensajes
+     */
+    private fun guardarSMSEnviado(numeroTelefono: String, mensaje: String) {
+        try {
+            val valores = ContentValues().apply {
+                put("address", numeroTelefono)
+                put("body", mensaje)
+                put("date", System.currentTimeMillis())
+                put("type", 2) // 2 = SMS enviado (SENT)
+                put("read", 1)
+            }
+
+            contexto?.contentResolver?.insert(
+                Uri.parse("content://sms/sent"),
+                valores
+            )
+
+            android.util.Log.d("SMS_DEBUG", "✅ SMS guardado en la app de mensajes")
+        } catch (e: Exception) {
+            android.util.Log.e("SMS_ERROR", "Error al guardar SMS en app de mensajes: ${e.message}", e)
+        }
     }
 }
